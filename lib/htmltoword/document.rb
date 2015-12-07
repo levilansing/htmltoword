@@ -11,7 +11,7 @@ module Htmltoword
       end
 
       def create_and_save(content, file_path, template_name = nil, extras = false)
-        File.open(file_path, "wb") do |out|
+        File.open(file_path, 'wb') do |out|
           out << create(content, template_name, extras)
         end
       end
@@ -48,8 +48,12 @@ module Htmltoword
         File.join(Htmltoword.config.default_xslt_path, 'relations.xslt')
       end
 
+      def inline_elements_xslt
+        File.join(Htmltoword.config.default_xslt_path, 'inline_elements.xslt')
+      end
+
       def xslt_template(extras = false)
-        File.join(Htmltoword.config.default_xslt_path, (extras ? 'htmltoword.xslt' : 'base.xslt'))
+        File.join(Htmltoword.config.default_xslt_path, extras ? 'htmltoword.xslt' : 'base.xslt')
       end
     end
 
@@ -69,33 +73,57 @@ module Htmltoword
             if @replaceable_files[entry.name] && entry.name == Document.doc_xml_file
               source = entry.get_input_stream.read.sub(/(<w:body>)((.|\n)*?)(<w:sectPr)/, "\\1#{@replaceable_files[entry.name]}\\4")
               out.write(source)
+              @replaceable_files.delete entry.name
             elsif @replaceable_files[entry.name]
               out.write(@replaceable_files[entry.name])
+              @replaceable_files.delete entry.name
             else
               out.write(template_zip.read(entry.name))
             end
+          end
+
+          # add numbering and relations files if they don't exist in template
+          @replaceable_files.each do |name, source|
+            out.put_next_entry(name)
+            out.write(source)
           end
         end
         buffer.string
       end
     end
 
-    def replace_file(html, file_name = Document.doc_xml_file, extras = false)
+    def replace_file(html, file_name = Document.doc_xml_file, extras)
       html = html.presence || '<body></body>'
       source = Nokogiri::HTML(html.gsub(/>\s+</, '><'))
       transform_and_replace(source, Document.numbering_xslt, Document.numbering_xml_file)
       transform_and_replace(source, Document.relations_xslt, Document.relations_xml_file)
-      cleaned_source = Nokogiri::XSLT(File.open(File.join(Htmltoword.config.default_xslt_path, 'inline_elements.xslt'))).transform(source)
-      transform_and_replace(cleaned_source, Document.xslt_template(extras), file_name, extras)
+      xslt = Nokogiri::XSLT(File.open(Document.inline_elements_xslt))
+      out = nil
+      html.split('<div class="-page-break"></div>').each do |chapter|
+        chapter += '<div class="-page-break"></div>'
+        source = Nokogiri::HTML(chapter.gsub(/>\s+</, '><'))
+        cleaned_source = xslt.transform(source)
+        if out == nil
+          out = cleaned_source
+        else
+          if out.root.children.length > 0
+            # append next page to body of output document
+            out.root.children[0].add_child(cleaned_source.root.children[0].children)
+          else
+            out = cleaned_source
+          end
+        end
+      end
+      transform_and_replace(out, Document.xslt_template(extras), file_name, extras)
     end
 
     private
 
-    def transform_and_replace source, xslt, file, remove_ns = false
+    def transform_and_replace(source, xslt, file, remove_ns = false)
       xslt = Nokogiri::XSLT(File.open(xslt))
       content = xslt.apply_to(source)
       content.gsub!(/\s*xmlns:(\w+)="(.*?)\s*"/,'') if remove_ns
-      @replaceable_files[file] =  content
+      @replaceable_files[file] = content
     end
   end
 end

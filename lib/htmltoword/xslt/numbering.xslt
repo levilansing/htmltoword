@@ -146,7 +146,7 @@
       </w:pPr>
       <xsl:if test="contains($style, 'bullet')">
         <w:rPr>
-          <w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/>
+          <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:hint="default"/>
         </w:rPr>
       </xsl:if>
     </w:lvl>
